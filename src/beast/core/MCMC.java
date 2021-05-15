@@ -32,6 +32,7 @@ import java.util.List;
 
 import javax.xml.parsers.ParserConfigurationException;
 
+import beast.evolution.operators.TreeOperator;
 import org.xml.sax.SAXException;
 
 import beast.core.Input.Validate;
@@ -133,7 +134,7 @@ public class MCMC extends Runnable {
      * Set this to true to enable detailed MCMC debugging information
      * to be displayed.
      */
-    private static final boolean printDebugInfo = false;
+    private static final boolean printDebugInfo = true;
 
     public MCMC() {
     }
@@ -259,6 +260,13 @@ public class MCMC extends Runnable {
     public void log(final long sampleNr) {
         for (final Logger log : loggers) {
             log.log(sampleNr);
+        }
+    } // log
+
+    public void log(final long sampleNr, boolean logsProposals) {
+        for (final Logger log : loggers) {
+            if (log.mode.equals(Logger.LOGMODE.tree) && log.logsProposals)
+                log.log(sampleNr, true);
         }
     } // log
 
@@ -494,7 +502,12 @@ public class MCMC extends Runnable {
 
         final Operator operator = operatorSchedule.selectOperator();
 
-        if (printDebugInfo) System.err.print("\n" + sampleNr + " " + operator.getName()+ ":");
+        boolean logTree = false;
+        if ((BEASTInterface) operator instanceof TreeOperator) {
+            logTree = true;
+        }
+
+        if (printDebugInfo && logTree) System.err.print("\n" + sampleNr + " " + operator.getName()+ ":");
 
         final Distribution evaluatorDistribution = operator.getEvaluatorDistribution();
         Evaluator evaluator = null;
@@ -524,6 +537,10 @@ public class MCMC extends Runnable {
         }
         final double logHastingsRatio = operator.proposal(evaluator);
 
+        if ((BEASTInterface) operator instanceof TreeOperator) {
+            log(sampleNr,true);
+        }
+
         if (logHastingsRatio != Double.NEGATIVE_INFINITY) {
 
             if (operator.requiresStateInitialisation()) {
@@ -534,7 +551,7 @@ public class MCMC extends Runnable {
             newLogLikelihood = posterior.calculateLogP();
 
             logAlpha = newLogLikelihood - oldLogLikelihood + logHastingsRatio; //CHECK HASTINGS
-            if (printDebugInfo) System.err.print(logAlpha + " " + newLogLikelihood + " " + oldLogLikelihood);
+            //if (printDebugInfo && logTree) System.err.print(logAlpha + " " + newLogLikelihood + " " + oldLogLikelihood);
 
             if (logAlpha >= 0 || Randomizer.nextDouble() < Math.exp(logAlpha)) {
                 // accept
@@ -544,7 +561,7 @@ public class MCMC extends Runnable {
                 if (sampleNr >= 0) {
                     operator.accept();
                 }
-                if (printDebugInfo) System.err.print(" accept");
+                if (printDebugInfo && logTree) System.err.print(" accept");
             } else {
                 // reject
                 if (sampleNr >= 0) {
@@ -552,7 +569,7 @@ public class MCMC extends Runnable {
                 }
                 state.restore();
                 state.restoreCalculationNodes();
-                if (printDebugInfo) System.err.print(" reject");
+                if (printDebugInfo && logTree) System.err.print(" reject");
             }
             state.setEverythingDirty(false);
         } else {
@@ -565,8 +582,10 @@ public class MCMC extends Runnable {
                 state.setEverythingDirty(false);
                 state.restoreCalculationNodes();
             }
-            if (printDebugInfo) System.err.print(" direct reject");
+            if (printDebugInfo && logTree) System.err.print(" direct reject");
         }
+        // this is how we can log trees == all trees :D
+
         log(sampleNr);
         return operator;
     }

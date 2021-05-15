@@ -71,6 +71,8 @@ public class Logger extends BEASTObject {
     final public Input<SORTMODE> sortModeInput = new Input<>("sort", "sort items to be logged, one of " + Arrays.toString(SORTMODE.values()), SORTMODE.none, SORTMODE.values());
     final public Input<Boolean> sanitiseHeadersInput = new Input<>("sanitiseHeaders", "whether to remove any clutter introduced by Beauti" , false);
 
+    final public Input<Boolean> logsProposalsInput = new Input<>("logsProposals", "Whether to log all proposals. Default is false." , false);
+
     final public Input<List<BEASTObject>> loggersInput = new Input<>("log",
             "Element in a log. This can be any plug in that is Loggable.",
             new ArrayList<>(), Validate.REQUIRED, Loggable.class);
@@ -78,6 +80,7 @@ public class Logger extends BEASTObject {
     // the file name to log to, or null, or "" if logging to stdout
     private String fileName;
 
+    boolean logsProposals;
     /**
      * list of loggers, if any
      */
@@ -256,6 +259,8 @@ public class Logger extends BEASTObject {
             } else {
             	m_out.print(header);
             }
+
+            logsProposals = logsProposalsInput.get();
             
             if ( baos != null ) {
                 assert tmp == System.out;
@@ -633,7 +638,7 @@ public class Logger extends BEASTObject {
      * * @param sample
      */
     public void log(long sampleNr) {
-        if ((sampleNr < 0) || (sampleNr % every > 0)) {
+        if ((sampleNr < 0) || (sampleNr % every > 0 || logsProposals)) {
             return;
         }
         if (sampleOffset >= 0) {
@@ -643,6 +648,64 @@ public class Logger extends BEASTObject {
             }
             sampleNr += sampleOffset;
         }
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        PrintStream out = new PrintStream(baos);
+
+        if (mode == LOGMODE.compound) {
+            out.print((sampleNr) + "\t");
+        }
+
+        for (final Loggable m_logger : loggerList) {
+            m_logger.log(sampleNr, out);
+        }
+
+        // Acquire log string and trim excess tab
+        String logContent;
+        try {
+            logContent = baos.toString("ASCII").trim();
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException("ASCII string encoding not supported: required for logging!");
+        }
+
+        // Include calculation speed estimate if this log is going to the terminal
+        if ( m_out == System.out ) {
+            logContent = prettifyLogLine(logContent);
+            m_out.print(logContent);
+
+            if (startLogTime < 0) {
+                if (sampleNr - sampleOffset > 6000) {
+                    startLogTime++;
+                    if (startLogTime == 0) {
+                        startLogTime = System.currentTimeMillis();
+                        startSample = sampleNr;
+                    }
+                }
+                m_out.print(" --");
+            } else {
+
+                final long logTime = System.currentTimeMillis();
+                final int secondsPerMSamples = (int) ((logTime - startLogTime) * 1000.0 / (sampleNr - startSample + 1.0));
+                final String timePerMSamples =
+                        (secondsPerMSamples >= 3600 ? secondsPerMSamples / 3600 + "h" : "") +
+                                (secondsPerMSamples >= 60 ? (secondsPerMSamples % 3600) / 60 + "m" : "") +
+                                (secondsPerMSamples % 60 + "s");
+                m_out.print(" " + timePerMSamples + "/Msamples");
+            }
+            m_out.println();
+
+        } else {
+            m_out.println(logContent);
+        }
+    } // log
+
+
+    /**
+     * log the state for given sample nr
+     * *
+     * * @param sample
+     */
+    public void log(long sampleNr, boolean logsProposals) {
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         PrintStream out = new PrintStream(baos);
